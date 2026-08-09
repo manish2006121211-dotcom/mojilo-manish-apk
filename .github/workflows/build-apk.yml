@@ -13,7 +13,7 @@ jobs:
     steps:
 
       # =========================================================
-      # 1. CHECKOUT
+      # 1. CHECKOUT REPOSITORY
       # =========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,7 +40,7 @@ jobs:
 
 
       # =========================================================
-      # 3. FIND REAL PROJECT FOLDER
+      # 3. FIND ACTUAL PROJECT
       # =========================================================
       - name: Find project folder
         run: |
@@ -49,8 +49,9 @@ jobs:
           cd project
 
           if [ -f package.json ]; then
-            echo "Project found in root."
+            echo "package.json found in project root."
           else
+
             FOUND=$(find . -type f -name package.json | head -n 1)
 
             if [ -z "$FOUND" ]; then
@@ -68,17 +69,10 @@ jobs:
             fi
           fi
 
-          echo "================================"
-          echo "PROJECT FILES"
-          echo "================================"
+          echo "Project ready."
 
+          echo "Files:"
           ls -la
-
-          echo "================================"
-          echo "PACKAGE.JSON"
-          echo "================================"
-
-          cat package.json
 
 
       # =========================================================
@@ -88,8 +82,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: project/package-lock.json
 
 
       # =========================================================
@@ -102,7 +94,7 @@ jobs:
 
 
       # =========================================================
-      # 6. INSTALL DEPENDENCIES
+      # 6. INSTALL PROJECT DEPENDENCIES
       # =========================================================
       - name: Install dependencies
         working-directory: project
@@ -110,8 +102,11 @@ jobs:
           set -e
 
           if [ -f package-lock.json ]; then
+            echo "package-lock.json found."
             npm ci
           else
+            echo "package-lock.json not found."
+            echo "Running npm install."
             npm install
           fi
 
@@ -137,7 +132,7 @@ jobs:
 
 
       # =========================================================
-      # 9. CREATE FIREBASE CONFIG
+      # 9. CREATE FIREBASE CONFIGURATION
       # =========================================================
       - name: Create Firebase configuration
         working-directory: project
@@ -149,8 +144,6 @@ jobs:
           FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
         run: |
-          set -e
-
           cat > firebase-applet-config.json <<EOF
           {
             "apiKey": "${FIREBASE_API_KEY}",
@@ -164,13 +157,6 @@ jobs:
 
           echo "Firebase configuration created."
 
-          echo "Firebase project:"
-          if [ -n "$FIREBASE_PROJECT_ID" ]; then
-            echo "Firebase Project ID is present."
-          else
-            echo "WARNING: Firebase Project ID is empty."
-          fi
-
 
       # =========================================================
       # 10. INSTALL PILLOW
@@ -182,9 +168,9 @@ jobs:
 
 
       # =========================================================
-      # 11. FIX APP ICON / LOGO
+      # 11. CREATE APP IMAGES
       # =========================================================
-      - name: Fix missing app images
+      - name: Create required app images
         run: |
           set -e
 
@@ -254,32 +240,31 @@ jobs:
               font=font
           )
 
+          # PNG icon
           img.save(
               "project/src/assets/images/icon.png",
               "PNG"
           )
 
+          # Required JPG
           img.save(
               "project/src/assets/images/app_icon_1786271094033.jpg",
               "JPEG",
               quality=95
           )
 
-          # Also create common possible logo names
+          # Logo
           img.save(
               "project/src/assets/logo.png",
               "PNG"
           )
 
-          print("All required app images created.")
+          print("App images created successfully.")
           PY
-
-          echo "Images:"
-          find project/src -type f | grep -E '\.(png|jpg|jpeg)$' || true
 
 
       # =========================================================
-      # 12. FIX REFERENCED IMAGE PATH
+      # 12. FIX LOGO IMAGE LOCATION
       # =========================================================
       - name: Fix logo image reference
         working-directory: project
@@ -288,31 +273,48 @@ jobs:
 
           mkdir -p src/assets
 
-          cp src/assets/images/app_icon_1786271094033.jpg \
-             src/assets/app_icon_1786271094033.jpg
+          cp \
+            src/assets/images/app_icon_1786271094033.jpg \
+            src/assets/app_icon_1786271094033.jpg
 
-          echo "Logo image copied to:"
-          ls -lh src/assets/app_icon_1786271094033.jpg
+          echo "Logo image copied successfully."
+
+          ls -lh src/assets/
+          ls -lh src/assets/images/
 
 
       # =========================================================
-      # 13. VERIFY IMPORTANT FILES
+      # 13. VERIFY PROJECT FILES
       # =========================================================
       - name: Verify project
         working-directory: project
         run: |
           set -e
 
+          echo "Checking package.json..."
+
           test -f package.json
+
+          echo "Checking Firebase config..."
+
           test -f firebase-applet-config.json
+
+          echo "Checking application image..."
+
           test -f src/assets/app_icon_1786271094033.jpg
 
-          echo "================================"
-          echo "IMPORTANT FILES VERIFIED"
-          echo "================================"
+          echo "All important files found."
 
+          echo ""
+          echo "Package:"
           ls -lh package.json
+
+          echo ""
+          echo "Firebase:"
           ls -lh firebase-applet-config.json
+
+          echo ""
+          echo "Image:"
           ls -lh src/assets/app_icon_1786271094033.jpg
 
 
@@ -324,29 +326,30 @@ jobs:
         run: |
           set -e
 
-          echo "Starting web build..."
+          echo "Starting web application build..."
 
           npm run build
 
-          echo "================================"
-          echo "WEB BUILD SUCCESS"
-          echo "================================"
+          echo ""
+          echo "======================================"
+          echo "WEB BUILD SUCCESSFUL"
+          echo "======================================"
 
           if [ -d dist ]; then
             echo "dist folder found."
             ls -la dist
-          elif [ -d build ]; then
+          fi
+
+          if [ -d build ]; then
             echo "build folder found."
             ls -la build
-          else
-            echo "WARNING: dist/build folder not found."
           fi
 
 
       # =========================================================
-      # 15. SETUP CAPACITOR
+      # 15. CREATE CAPACITOR CONFIG
       # =========================================================
-      - name: Setup Capacitor
+      - name: Setup Capacitor configuration
         working-directory: project
         run: |
           set -e
@@ -366,13 +369,17 @@ jobs:
           export default config;
           EOF
 
-          fi
+            echo "Capacitor config created."
 
-          echo "Capacitor configuration ready."
+          else
+
+            echo "Capacitor config already exists."
+
+          fi
 
 
       # =========================================================
-      # 16. ADD ANDROID
+      # 16. ADD ANDROID PLATFORM
       # =========================================================
       - name: Add Android platform
         working-directory: project
@@ -380,9 +387,15 @@ jobs:
           set -e
 
           if [ ! -d android ]; then
+
+            echo "Adding Android platform..."
+
             npx cap add android
+
           else
+
             echo "Android platform already exists."
+
           fi
 
 
@@ -398,7 +411,7 @@ jobs:
 
 
       # =========================================================
-      # 18. SETUP JAVA
+      # 18. SETUP JAVA 21
       # =========================================================
       - name: Setup Java 21
         uses: actions/setup-java@v4
@@ -429,12 +442,14 @@ jobs:
 
 
       # =========================================================
-      # 21. SET COMPILE SDK
+      # 21. CONFIGURE ANDROID SDK 35
       # =========================================================
       - name: Configure Android SDK
         working-directory: project/android
         run: |
           set -e
+
+          echo "Configuring Android SDK 35..."
 
           find . -name "*.gradle" -type f -exec sed -i \
             -e 's/compileSdkVersion[[:space:]]*=[[:space:]]*34/compileSdkVersion = 35/g' \
@@ -470,8 +485,11 @@ jobs:
         run: |
           set -e
 
+          echo "Starting Android APK build..."
+
           ./gradlew assembleDebug --no-daemon
 
+          echo ""
           echo "======================================"
           echo "APK BUILD SUCCESSFUL"
           echo "======================================"
@@ -486,9 +504,16 @@ jobs:
 
           APK="project/android/app/build/outputs/apk/debug/app-debug.apk"
 
-          test -f "$APK"
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK not found."
+            exit 1
+          fi
 
-          echo "APK FOUND:"
+          echo ""
+          echo "======================================"
+          echo "APK FOUND"
+          echo "======================================"
+
           ls -lh "$APK"
 
 
@@ -504,7 +529,7 @@ jobs:
 
 
       # =========================================================
-      # 27. SUCCESS MESSAGE
+      # 27. FINAL SUCCESS
       # =========================================================
       - name: Build complete
         run: |
@@ -513,7 +538,8 @@ jobs:
           echo " MOJILO MANISH APK READY"
           echo "======================================"
           echo ""
-          echo "Download artifact:"
-          echo "Mojilo-Manish-APK"
+          echo "Artifact: Mojilo-Manish-APK"
+          echo ""
+          echo "Download the APK from Actions."
           echo ""
           echo "======================================"
