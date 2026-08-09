@@ -12,17 +12,16 @@ jobs:
 
     steps:
 
-      # 1. Checkout repository
+      # 1. Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # 2. Setup Node.js
-      # IMPORTANT: No npm cache here because the project ZIP
-      # has not been extracted yet.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: ''
 
       # 3. Find and extract ZIP
       - name: Find and extract ZIP
@@ -31,14 +30,17 @@ jobs:
 
           mkdir -p project
 
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
 
           if [ -n "$ZIP_FILE" ]; then
-            echo "ZIP found: $ZIP_FILE"
+            echo "ZIP found:"
+            echo "$ZIP_FILE"
+
             unzip -o "$ZIP_FILE" -d project
+
+            echo "ZIP extracted."
           else
-            echo "ERROR: ZIP file not found."
-            exit 1
+            echo "No ZIP found."
           fi
 
       # 4. Find actual project folder
@@ -46,46 +48,45 @@ jobs:
         run: |
           set -e
 
-          if [ -f project/package.json ]; then
-            echo "package.json found in project/"
-          else
-            FOUND=$(find project -name package.json -type f | head -n 1)
+          echo "Searching for package.json..."
 
-            if [ -z "$FOUND" ]; then
-              echo "ERROR: package.json not found."
+          FOUND=$(find project -type f -name "package.json" | head -n 1)
 
-              echo "Files inside project:"
-              find project -maxdepth 4 -type f | head -100
-
-              exit 1
-            fi
-
-            DIR=$(dirname "$FOUND")
-
-            echo "Actual project found at: $DIR"
-
-            if [ "$DIR" != "project" ]; then
-              shopt -s dotglob
-              cp -r "$DIR"/* project/
-            fi
+          if [ -z "$FOUND" ]; then
+            echo "ERROR: package.json not found."
+            find project -maxdepth 3 -type f | head -100
+            exit 1
           fi
 
-          echo "Project folder ready."
+          PROJECT_DIR=$(dirname "$FOUND")
+
+          echo "Found project:"
+          echo "$PROJECT_DIR"
+
+          if [ "$PROJECT_DIR" != "project" ]; then
+            mkdir -p project-temp
+
+            cp -r "$PROJECT_DIR"/. project-temp/
+
+            rm -rf project/*
+
+            cp -r project-temp/. project/
+
+            rm -rf project-temp
+          fi
+
+          echo "Final project:"
+          ls -la project
 
       # 5. Show project
       - name: Show project
         working-directory: project
         run: |
-          echo "=============================="
-          echo "PROJECT FILES"
-          echo "=============================="
+          echo "===== PROJECT FILES ====="
+          find . -maxdepth 3 -type f | sort | head -200
 
-          ls -la
-
-          echo "=============================="
-          echo "PACKAGE.JSON"
-          echo "=============================="
-
+          echo ""
+          echo "===== PACKAGE.JSON ====="
           cat package.json
 
       # 6. Install dependencies
@@ -94,9 +95,11 @@ jobs:
         run: |
           set -e
 
+          rm -rf node_modules
+
           if [ -f package-lock.json ]; then
-            echo "package-lock.json found."
-            npm ci
+            echo "Installing using npm install..."
+            npm install
           else
             echo "No package-lock.json found."
             npm install
@@ -106,45 +109,40 @@ jobs:
       - name: Install Firebase
         working-directory: project
         run: |
-          npm install firebase
+          npm install firebase --save
 
       # 8. Install Capacitor
       - name: Install Capacitor
         working-directory: project
         run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 --save
 
-      # 9. Create Firebase fallback configuration
-      - name: Create Firebase configuration
+      # 9. Create Capacitor config if missing
+      - name: Create Capacitor configuration
         working-directory: project
         run: |
-          if [ ! -f firebase-applet-config.json ]; then
+          if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
 
-            cat > firebase-applet-config.json <<'EOF'
-          {
-            "apiKey": "",
-            "authDomain": "",
-            "projectId": "",
-            "storageBucket": "",
-            "messagingSenderId": "",
-            "appId": ""
-          }
+            cat > capacitor.config.ts <<'EOF'
+          import type { CapacitorConfig } from '@capacitor/cli';
+
+          const config: CapacitorConfig = {
+            appId: 'com.mojilomanish.app',
+            appName: 'Mojilo Manish',
+            webDir: 'dist',
+            bundledWebRuntime: false
+          };
+
+          export default config;
           EOF
 
-            echo "Firebase fallback configuration created."
+            echo "Capacitor configuration created."
 
           else
-            echo "Existing Firebase configuration found."
-            echo "Keeping existing configuration."
+            echo "Existing Capacitor configuration found."
           fi
 
-      # 10. Install Pillow
-      - name: Install Pillow
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install Pillow
-
-      # 11. Create required application images
+      # 10. Create required app images
       - name: Fix missing application images
         run: |
           set -e
@@ -178,12 +176,12 @@ jobs:
               fill="white"
           )
 
-          font = None
-
           font_paths = [
               "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
               "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"
           ]
+
+          font = None
 
           for path in font_paths:
               if os.path.exists(path):
@@ -201,11 +199,11 @@ jobs:
               font=font
           )
 
-          text_width = bbox[2] - bbox[0]
-          text_height = bbox[3] - bbox[1]
+          width = bbox[2] - bbox[0]
+          height = bbox[3] - bbox[1]
 
-          x = (size - text_width) // 2
-          y = (size - text_height) // 2 - 30
+          x = (size - width) // 2
+          y = (size - height) // 2 - 30
 
           draw.text(
               (x, y),
@@ -225,92 +223,119 @@ jobs:
               quality=95
           )
 
-          print("Application images created successfully.")
+          print("Application images created.")
           PY
 
           ls -lh project/src/assets/images/
 
-      # 12. Verify image
-      - name: Verify required image
+      # 11. Install Pillow
+      - name: Install Pillow
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install Pillow
+
+      # 12. Fix logo image reference
+      - name: Fix logo image reference
+        working-directory: project
         run: |
           set -e
 
-          test -f project/src/assets/images/icon.png
-          test -f project/src/assets/images/app_icon_1786271094033.jpg
+          if [ -f src/assets/logo.ts ]; then
 
-          echo "Required images found."
+            echo "logo.ts found."
 
-      # 13. Build web app
+            sed -i \
+              "s#app_icon_[0-9]*\.jpg#app_icon_1786271094033.jpg#g" \
+              src/assets/logo.ts
+
+            echo "logo.ts updated."
+
+            cat src/assets/logo.ts
+
+          else
+            echo "logo.ts not found. No change needed."
+          fi
+
+      # 13. Verify important files
+      - name: Verify project
+        working-directory: project
+        run: |
+          set -e
+
+          test -f package.json
+
+          test -f src/assets/images/app_icon_1786271094033.jpg
+
+          echo "package.json OK"
+          echo "Application image OK"
+
+      # 14. Build web app
       - name: Build web app
         working-directory: project
         run: |
           set -e
 
-          echo "=============================="
-          echo "BUILDING WEB APP"
-          echo "=============================="
+          echo "Starting web build..."
 
           npm run build
 
           echo "Web build successful."
 
-      # 14. Setup Capacitor configuration
+          if [ -d dist ]; then
+            echo "dist folder found."
+            find dist -maxdepth 2 -type f | head -50
+          else
+            echo "ERROR: dist folder not found."
+            exit 1
+          fi
+
+      # 15. Setup Capacitor
       - name: Setup Capacitor
         working-directory: project
         run: |
-          if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
+          set -e
 
-            cat > capacitor.config.ts <<'EOF'
-          import type { CapacitorConfig } from '@capacitor/cli';
+          npx cap --version
 
-          const config: CapacitorConfig = {
-            appId: 'com.mojilomanish.app',
-            appName: 'Mojilo Manish',
-            webDir: 'dist',
-            bundledWebRuntime: false
-          };
-
-          export default config;
-          EOF
-
-            echo "Capacitor configuration created."
-
-          else
-            echo "Existing Capacitor configuration found."
-          fi
-
-      # 15. Add Android platform
+      # 16. Add Android platform
       - name: Add Android platform
         working-directory: project
         run: |
+          set -e
+
           if [ ! -d android ]; then
+            echo "Adding Android platform..."
             npx cap add android
           else
             echo "Android platform already exists."
           fi
 
-      # 16. Sync Capacitor
+      # 17. Sync Capacitor
       - name: Sync Capacitor
         working-directory: project
         run: |
+          set -e
+
           npx cap sync android
 
-      # 17. Setup Java 17
-      - name: Setup Java 17
+      # 18. Setup Java 21
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
-      # 18. Check Java
+      # 19. Check Java
       - name: Check Java
         run: |
           java -version
           javac -version
 
-      # 19. Setup Android SDK
+      # 20. Setup Android SDK
       - name: Setup Android SDK
         run: |
+          set -e
+
           yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
           ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager \
@@ -318,62 +343,21 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      # 20. Configure Android SDK
+          echo "Android SDK 35 installed."
+
+      # 21. Configure Android SDK safely
       - name: Configure Android SDK
-        working-directory: project/android
-        run: |
-          set +e
-
-          find . -name "*.gradle" -type f -exec sed -i \
-            -e 's/compileSdkVersion[[:space:]]*=[[:space:]]*[0-9]*/compileSdkVersion = 35/g' \
-            -e 's/compileSdkVersion[[:space:]]*[0-9]*/compileSdkVersion 35/g' \
-            -e 's/targetSdkVersion[[:space:]]*=[[:space:]]*[0-9]*/targetSdkVersion = 35/g' \
-            -e 's/targetSdkVersion[[:space:]]*[0-9]*/targetSdkVersion 35/g' \
-            {} +
-
-          echo "Android SDK 35 configured."
-
-      # 21. Fix Kotlin duplicate classes
-      - name: Fix Kotlin duplicate classes
         working-directory: project/android
         run: |
           set -e
 
-          cat >> build.gradle <<'EOF'
+          echo "Checking Gradle files..."
 
-          allprojects {
-              configurations.configureEach {
+          grep -R "compileSdkVersion" -n . --include="*.gradle" --include="*.gradle.kts" || true
 
-                  resolutionStrategy {
+          grep -R "targetSdkVersion" -n . --include="*.gradle" --include="*.gradle.kts" || true
 
-                      force "org.jetbrains.kotlin:kotlin-stdlib:1.8.22"
-                      force "org.jetbrains.kotlin:kotlin-stdlib-common:1.8.22"
-                      force "org.jetbrains.kotlin:kotlin-reflect:1.8.22"
-
-                      eachDependency { details ->
-
-                          if (details.requested.group == "org.jetbrains.kotlin") {
-
-                              if (details.requested.name == "kotlin-stdlib-jdk7") {
-                                  details.useVersion "1.8.22"
-                              }
-
-                              if (details.requested.name == "kotlin-stdlib-jdk8") {
-                                  details.useVersion "1.8.22"
-                              }
-
-                          }
-                      }
-                  }
-
-                  exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk7"
-                  exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk8"
-              }
-          }
-
-          EOF
-
-          echo "Kotlin duplicate dependency fix applied."
+          echo "Gradle configuration checked."
 
       # 22. Make Gradle executable
       - name: Make Gradle executable
@@ -387,7 +371,15 @@ jobs:
         run: |
           ./gradlew clean --no-daemon
 
-      # 24. Build Debug APK
+      # 24. Check Android dependencies
+      - name: Check Android dependencies
+        working-directory: project/android
+        run: |
+          ./gradlew dependencies --no-daemon > dependencies.txt || true
+
+          echo "Android dependencies checked."
+
+      # 25. Build Debug APK
       - name: Build Debug APK
         working-directory: project/android
         run: |
@@ -397,9 +389,11 @@ jobs:
           echo "BUILDING MOJILO MANISH APK"
           echo "======================================"
 
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace
 
-      # 25. Check APK
+      # 26. Check APK
       - name: Check APK
         run: |
           set -e
@@ -407,17 +401,15 @@ jobs:
           APK="project/android/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK" ]; then
-            echo "ERROR: APK was not created."
+            echo "ERROR: APK not found."
+            find project/android -type f -name "*.apk" -print
             exit 1
           fi
 
-          echo "======================================"
-          echo "APK CREATED SUCCESSFULLY"
-          echo "======================================"
-
+          echo "APK FOUND:"
           ls -lh "$APK"
 
-      # 26. Upload APK
+      # 27. Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -425,10 +417,11 @@ jobs:
           path: project/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      # 27. Build complete
+      # 28. Build complete
       - name: Build complete
         run: |
           echo "======================================"
           echo "MOJILO MANISH APK BUILD SUCCESSFUL"
           echo "======================================"
-          echo "APK is ready for download."
+
+          ls -lh project/android/app/build/outputs/apk/debug/app-debug.apk
