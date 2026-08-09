@@ -1,0 +1,128 @@
+name: Build Mojilo Manish APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Find and extract ZIP
+        shell: bash
+        run: |
+          set -e
+
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file found."
+            exit 1
+          fi
+
+          echo "Found ZIP: $ZIP_FILE"
+
+          mkdir -p project
+          unzip -q "$ZIP_FILE" -d project
+
+          echo "Extracted files:"
+          find project -maxdepth 2 -type f | head -100
+
+      - name: Find project folder
+        shell: bash
+        run: |
+          set -e
+
+          if [ -f "project/package.json" ]; then
+            echo "PROJECT_DIR=project" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          PACKAGE_DIR=$(find project -name package.json -type f | head -n 1 | xargs -r dirname)
+
+          if [ -z "$PACKAGE_DIR" ]; then
+            echo "ERROR: package.json not found."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PACKAGE_DIR" >> "$GITHUB_ENV"
+
+      - name: Show project
+        run: |
+          echo "Project directory: $PROJECT_DIR"
+          cd "$PROJECT_DIR"
+          ls -la
+
+      - name: Install dependencies
+        run: |
+          cd "$PROJECT_DIR"
+          npm install
+
+      - name: Install Capacitor
+        run: |
+          cd "$PROJECT_DIR"
+          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+
+      - name: Build web app
+        run: |
+          cd "$PROJECT_DIR"
+          npm run build
+
+      - name: Add Android platform
+        run: |
+          cd "$PROJECT_DIR"
+          npx cap add android
+
+      - name: Sync Capacitor
+        run: |
+          cd "$PROJECT_DIR"
+          npx cap sync android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: |
+          sdkmanager "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Make Gradle executable
+        run: |
+          chmod +x "$PROJECT_DIR/android/gradlew"
+
+      - name: Build Debug APK
+        run: |
+          cd "$PROJECT_DIR/android"
+          ./gradlew assembleDebug
+
+      - name: Copy APK
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/apk"
+          cp "$PROJECT_DIR/android/app/build/outputs/apk/debug/app-debug.apk" \
+             "$GITHUB_WORKSPACE/apk/Mojilo-Manish.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mojilo-Manish-APK
+          path: apk/Mojilo-Manish.apk
+          if-no-files-found: error
